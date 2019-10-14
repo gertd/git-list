@@ -25,3 +25,7 @@ _testmain.go
 *.prof
 git-list
 debug
+
+# directories
+/bin
+/release

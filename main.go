@@ -1,18 +1,21 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"text/tabwriter"
 
-	"github.com/codegangsta/cli"
+	"github.com/gertd/git-list/version"
 	"github.com/google/go-github/github"
+	"github.com/urfave/cli"
 	"golang.org/x/oauth2"
 )
 
 // command line args
 const (
+	GitHost  = "host"
 	GitUser  = "user"
 	GitOrg   = "org"
 	GitToken = "token"
@@ -21,6 +24,7 @@ const (
 
 // environment variables
 const (
+	GitHostEnv  = "GIT_HOST"
 	GitUserEnv  = "GIT_USER"
 	GitOrgEnv   = "GIT_ORG"
 	GitTokenEnv = "GIT_TOKEN"
@@ -28,6 +32,7 @@ const (
 
 // command line usage
 const (
+	GitHostUsage  = "GitHub Enterprise host address"
 	GitUserUsage  = "GitHub user"
 	GitOrgUsage   = "GitHub organization"
 	GitTokenUsage = "GitHub private access token"
@@ -38,34 +43,41 @@ const (
 const (
 	AppName  = "git-list"
 	AppUsage = "list all GitHub repos"
-	GitCmd   = "git"
-	GitClone = "clone"
 )
 
 func main() {
-
 	app := cli.NewApp()
 	app.Name = AppName
 	app.Usage = AppUsage
 	app.Action = gitList
+	app.Version = version.Info()
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
-			Name:   GitUser,
-			Value:  "",
-			Usage:  GitUserUsage,
-			EnvVar: GitUserEnv,
+			Name:     GitUser,
+			Value:    "",
+			Usage:    GitUserUsage,
+			EnvVar:   GitUserEnv,
+			Required: true,
 		},
 		cli.StringFlag{
-			Name:   GitOrg,
-			Value:  "",
-			Usage:  GitOrgUsage,
-			EnvVar: GitOrgEnv,
+			Name:     GitOrg,
+			Value:    "",
+			Usage:    GitOrgUsage,
+			EnvVar:   GitOrgEnv,
+			Required: true,
 		},
 		cli.StringFlag{
-			Name:   GitToken,
+			Name:     GitToken,
+			Value:    "",
+			Usage:    GitTokenUsage,
+			EnvVar:   GitTokenEnv,
+			Required: true,
+		},
+		cli.StringFlag{
+			Name:   GitHost,
 			Value:  "",
-			Usage:  GitTokenUsage,
-			EnvVar: GitTokenEnv,
+			Usage:  GitHostUsage,
+			EnvVar: GitHostEnv,
 		},
 		cli.BoolFlag{
 			Name:  Verbose,
@@ -81,13 +93,21 @@ func main() {
 	os.Exit(1)
 }
 
-func gitList(c *cli.Context) error {
+func gitList(c *cli.Context) error { //nolint:funlen
+	var (
+		err    error
+		ctx    = context.Background()
+		client *github.Client
+		repos  []*github.Repository
+		resp   *github.Response
+	)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
 
 	gitToken := c.GlobalString(GitToken)
 	gitOrg := c.GlobalString(GitOrg)
 	gitUser := c.GlobalString(GitUser)
+	gitHost := c.GlobalString(GitHost)
 	verbose := c.GlobalBool(Verbose)
 
 	if verbose {
@@ -97,15 +117,15 @@ func gitList(c *cli.Context) error {
 	ts := oauth2.StaticTokenSource(
 		&oauth2.Token{AccessToken: gitToken},
 	)
-	tc := oauth2.NewClient(oauth2.NoContext, ts)
+	tc := oauth2.NewClient(ctx, ts)
 
-	client := github.NewClient(tc)
+	if gitHost == "" {
+		client = github.NewClient(tc)
+	} else if client, err = github.NewEnterpriseClient(gitHost, gitHost, tc); err != nil {
+		return err
+	}
 
 	page := 1
-
-	var repos []*github.Repository
-	var resp *github.Response
-	var err error
 
 	fmt.Fprintf(w, "%s\t%s\t%s\n",
 		"last update",
@@ -113,31 +133,27 @@ func gitList(c *cli.Context) error {
 		"description")
 
 	for {
-
 		if len(gitOrg) == 0 {
-
 			opt := &github.RepositoryListOptions{
 				ListOptions: github.ListOptions{PerPage: 10, Page: page},
 			}
 
-			repos, resp, err = client.Repositories.List(gitUser, opt)
+			repos, resp, err = client.Repositories.List(ctx, gitUser, opt)
 			if err != nil {
 				return err
 			}
-
 		} else {
 			opt := &github.RepositoryListByOrgOptions{
 				ListOptions: github.ListOptions{PerPage: 10, Page: page},
 			}
 
-			repos, resp, err = client.Repositories.ListByOrg(c.GlobalString(GitOrg), opt)
+			repos, resp, err = client.Repositories.ListByOrg(ctx, c.GlobalString(GitOrg), opt)
 			if err != nil {
 				return err
 			}
 		}
 
 		for _, repo := range repos {
-
 			fmt.Fprintf(w, "%04d-%02d-%02d\t%s\t%s\n",
 				repo.UpdatedAt.Year(),
 				repo.UpdatedAt.Month(),
@@ -153,6 +169,7 @@ func gitList(c *cli.Context) error {
 		page = resp.NextPage
 	}
 	w.Flush()
+
 	return nil
 }
 
@@ -160,5 +177,6 @@ func ifNilEmpty(pstr *string) string {
 	if pstr == nil {
 		return ""
 	}
+
 	return *pstr
 }
