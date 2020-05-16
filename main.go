@@ -60,11 +60,16 @@ func main() {
 			Required: true,
 		},
 		cli.StringFlag{
-			Name:     GitOrg,
-			Value:    "",
-			Usage:    GitOrgUsage,
-			EnvVar:   GitOrgEnv,
-			Required: true,
+			Name:   GitOrg,
+			Value:  "",
+			Usage:  GitOrgUsage,
+			EnvVar: GitOrgEnv,
+			// Required: true,
+		},
+		cli.StringFlag{
+			Name:  "type",
+			Value: "all",
+			Usage: "all | owner | public | private | member",
 		},
 		cli.StringFlag{
 			Name:     GitToken,
@@ -106,6 +111,7 @@ func gitList(c *cli.Context) error { //nolint:funlen
 
 	gitToken := c.GlobalString(GitToken)
 	gitOrg := c.GlobalString(GitOrg)
+	gitRepoType := c.GlobalString("type")
 	gitUser := c.GlobalString(GitUser)
 	gitHost := c.GlobalString(GitHost)
 	verbose := c.GlobalBool(Verbose)
@@ -135,6 +141,8 @@ func gitList(c *cli.Context) error { //nolint:funlen
 	for {
 		if len(gitOrg) == 0 {
 			opt := &github.RepositoryListOptions{
+				Visibility: gitRepoType,
+				// Type:        gitRepoType,
 				ListOptions: github.ListOptions{PerPage: 10, Page: page},
 			}
 
@@ -144,6 +152,7 @@ func gitList(c *cli.Context) error { //nolint:funlen
 			}
 		} else {
 			opt := &github.RepositoryListByOrgOptions{
+				Type:        gitRepoType,
 				ListOptions: github.ListOptions{PerPage: 10, Page: page},
 			}
 
